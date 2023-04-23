@@ -7,6 +7,6 @@
 - 현재 씬에만 국한되어 있지 않고 프로젝트 내의 모든 프리팹을 체크합니다.
 
 - 참조 가능한 타입은 아래와 같습니다.
-- Materil / Texture2D / AnimatorController / RenderTexture 
+- Material / Texture2D / AnimatorController / RenderTexture 
 - AudioClip  / MonoBehavior / TMP_Font / Font
  
