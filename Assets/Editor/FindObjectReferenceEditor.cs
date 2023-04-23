@@ -7,6 +7,7 @@ using UnityEngine.UI;
 using System.Reflection;
 using TMPro;
 using UnityEditor.SceneManagement;
+using FindObjectReferenced;
 
 public enum eAssetType
 {
@@ -14,11 +15,15 @@ public enum eAssetType
     TEXTURE2D,
     ANIMATOR_CONTROLLER,
     RENDER_TEXTURE,
-    PREFAB,
     AUDIO_CLIP,
     SPRITE,
     MONO_BEHAVIOUR,
-    TMP_FONT
+    TMP_FONT,
+    FONT,
+    /// <summary>
+    /// 미구현
+    /// </summary>
+    PREFAB,  
 }
 
 /// <summary>
@@ -39,14 +44,17 @@ public class FindObjectReferenceEditor : EditorWindow
     [MenuItem("Tools/Find Object Referenced By Prefab")]
     public static void ShowMyEditor()
     {
-        EditorWindow wnd = GetWindow<FindObjectReferenceEditor>();
-        wnd.titleContent = new GUIContent("Find_Object_Referenced");
-        wnd.minSize = new Vector2(300, 500);
-        wnd.maxSize = new Vector2(800, 720);
-        init = false;
+        FindObjectReferenceEditor window = GetWindow<FindObjectReferenceEditor>();
+        window.titleContent = new GUIContent("Find Object Referenced By Prefab", "프로젝트 내에 타겟 오브젝트가 참조 하고 있는 모든 프리팹을 확인합니다");
+        window.minSize = new Vector2(400, 400);
+        window.maxSize = new Vector2(600, 500);
+        window.Initialize();
     }
 
-    public void OnGUI()
+    /// <summary>
+    /// 초기화.
+    /// </summary>
+    public void Initialize()
     {
         if (init == false)
         {
@@ -55,10 +63,15 @@ public class FindObjectReferenceEditor : EditorWindow
             foldoutStates = new Dictionary<string, bool>();
             init = true;
         }
-        EditorGUILayout.Space(10);
+    }
+
+    public void OnGUI()
+    {
+        DrawLine(10);
         EditorGUILayout.BeginHorizontal();
         GUILayout.Label("사용 여부를 체크할 리소스를 등록 해 주세요.");
         EditorGUILayout.EndHorizontal();
+        GUILayout.Space(5);
         EditorGUILayout.BeginHorizontal();
         target = EditorGUILayout.ObjectField(target, typeof(UnityEngine.Object), false);
         if (PreTarget != null && target != null)
@@ -70,45 +83,25 @@ public class FindObjectReferenceEditor : EditorWindow
                 PreTarget = target;
             }
         }
-        else if(PreTarget == null)
+        else if (PreTarget == null)
         {
             PreTarget = target;
         }
         EditorGUILayout.EndHorizontal();
+
         if (target != null)
         {
-            scriptName = null;
-            Type curType = target.GetType();
-            GUIStyle style = new GUIStyle(GUI.skin.label);
-            style.normal.textColor = Color.yellow;
-            GUILayout.Label("["+ curType.Name+ "] 으로 참조된 프리팹을 검색 합니다." , style);
-            switch (curType.Name)
-            {
-                case "Material": assetType = eAssetType.MATERIAL; break;
-                case "Texture2D": assetType = eAssetType.TEXTURE2D; break;
-                case "GameObject": assetType = eAssetType.PREFAB; break;
-                case "AnimatorController": assetType = eAssetType.ANIMATOR_CONTROLLER; break;
-                case "RenderTexture": assetType = eAssetType.RENDER_TEXTURE; break;
-                case "AudioClip": assetType = eAssetType.AUDIO_CLIP; break;
-                case "Sprite": assetType = eAssetType.SPRITE; break;
-                case "TMP_FontAsset": assetType = eAssetType.TMP_FONT; break;
-                case "MonoScript":
-                    {
-                        assetType = eAssetType.MONO_BEHAVIOUR;
-                        string path = AssetDatabase.GetAssetPath(target.GetInstanceID());
-                        MonoScript mono = (MonoScript)AssetDatabase.LoadAssetAtPath(path, typeof(MonoScript));
-                        if (mono != null) scriptName = mono.name;
-                    }
-                    break;
-            }
+            GUILayout.Space(5);
+            //에셋타입을 지정한다.
+            SettingAssetTypeByTarget();
         }
-        if (target == null)
+        else
         {
             referencedList.Clear();
             foldoutStates.Clear();
             return;
         }
-        EditorGUILayout.Space(10);
+        DrawLine(10);
         //Target이 참조된 모든 프리팹 찾기 시작.
         FindReferencedObject();
 
@@ -119,45 +112,42 @@ public class FindObjectReferenceEditor : EditorWindow
             GUILayout.Label("[" + target.GetType().Name + "] 으로 참조된 프리팹이 없습니다.", style);
             return;
         }
-
-        scrollPosition = GUILayout.BeginScrollView(scrollPosition);
-        // 게임 오브젝트 리스트를 순회하며 각 항목을 보여준다
-        foreach (KeyValuePair<string, List<Transform>> obj in referencedList)
-        {
-            Transform tr = (Transform)AssetDatabase.LoadAssetAtPath(obj.Key, typeof(Transform));
-            if (!foldoutStates.ContainsKey(obj.Key))
-            {
-                foldoutStates[obj.Key] = false;
-            }
-
-            GUILayout.BeginHorizontal();
-            foldoutStates[obj.Key] = GUILayout.Toggle(foldoutStates[obj.Key], "( " + obj.Value.Count + " ) "+ obj.Key, GUI.skin.button);
-            if (GUILayout.Button("Go To"))
-            {
-                PrefabStageUtility.OpenPrefab(obj.Key);
-                //Selection.activeObject = tr.gameObject;
-            }
-            GUILayout.EndHorizontal();
-
-            if (foldoutStates[obj.Key])
-            {
-                /*
-                PrefabStage stage = PrefabStageUtility.GetCurrentPrefabStage();
-                GameObject root = stage.prefabContentsRoot;
-                */
-
-                foreach (Transform child in obj.Value)
-                {
-                    if (GUILayout.Button(child.name +"_"+ child.GetInstanceID()))
-                    {
-                        Selection.activeGameObject = child.gameObject;
-                    }
-                }
-            }
-        }
-        GUILayout.EndScrollView(); // 스크롤뷰 종료
+        //결과 화면 보여주기
+        DrawResultScrollView();
     }
-        
+
+    /// <summary>
+    /// 타겟이 지정되면 에셋타입으로 변경합니다.
+    /// </summary>
+    private void SettingAssetTypeByTarget()
+    {
+        scriptName = null;
+        Type curType = target.GetType();
+        GUIStyle style = new GUIStyle(GUI.skin.label);
+        style.normal.textColor = Color.yellow;
+        GUILayout.Label("[" + curType.Name + "] 으로 참조된 프리팹을 검색 합니다.", style);
+        switch (curType.Name)
+        {
+            case "Material": assetType = eAssetType.MATERIAL; break;
+            case "Texture2D": assetType = eAssetType.TEXTURE2D; break;
+            case "GameObject": assetType = eAssetType.PREFAB; break;
+            case "AnimatorController": assetType = eAssetType.ANIMATOR_CONTROLLER; break;
+            case "RenderTexture": assetType = eAssetType.RENDER_TEXTURE; break;
+            case "AudioClip": assetType = eAssetType.AUDIO_CLIP; break;
+            case "Sprite": assetType = eAssetType.SPRITE; break;
+            case "TMP_FontAsset": assetType = eAssetType.TMP_FONT; break;
+            case "Font": assetType = eAssetType.FONT; break;
+            case "MonoScript":
+                {
+                    assetType = eAssetType.MONO_BEHAVIOUR;
+                    string path = AssetDatabase.GetAssetPath(target.GetInstanceID());
+                    MonoScript mono = (MonoScript)AssetDatabase.LoadAssetAtPath(path, typeof(MonoScript));
+                    if (mono != null) scriptName = mono.name;
+                }
+                break;
+        }
+    }
+
     /// <summary>
     /// Target을 참조 하고 있는 모든 프리팹을 찾아서 리스트에 저장한다.
     /// </summary>
@@ -178,6 +168,7 @@ public class FindObjectReferenceEditor : EditorWindow
                 //리스트에 추가
                 childList.Add(parent);
             }
+            //해당 Transform의 모든 자식 리턴
             List<Transform> allChild = parent.GetAllChildren();
             for (int j = 0; j < allChild.Count; j++)
             {
@@ -187,6 +178,7 @@ public class FindObjectReferenceEditor : EditorWindow
                     childList.Add(allChild[j]);
                 }
             }
+            //Root 프리팹 Path를 Key로 저장하고 참조중인 오브젝트 리스트 저장
             if (referencedList.ContainsKey(path) == false && childList.Count > 0)
             {
                 referencedList.Add(path, childList);
@@ -205,104 +197,60 @@ public class FindObjectReferenceEditor : EditorWindow
         {
             case eAssetType.ANIMATOR_CONTROLLER:
                 {
-                    Animator ani = tr.GetComponent<Animator>();
-                    if (ani != null)
-                    {
-                        if (ani.runtimeAnimatorController != null)
-                        {
-                            isReferenced = target.GetInstanceID() == ani.runtimeAnimatorController.GetInstanceID();
-                            if (isReferenced) return true;
-                        }
-                    }
-                    return isReferenced;
-                }
+                    //애니메이터 체크
+                    isReferenced = CheckAnimatorByAnimatorController(tr);
+                    if (isReferenced) return true;
+                }break;
 
             //매터리얼이 포함 된 Component 모두 체크
             case eAssetType.MATERIAL:
                 {
-                    //모든 그래픽
-                    Graphic[] graphicArray = tr.GetComponents<Graphic>();
-                    if (graphicArray.Length > 0)
-                    {
-                        for (int i = 0; i < graphicArray.Length; i++)
-                        {
-                            if (graphicArray[i].material == null) continue;
-                            isReferenced = target.GetInstanceID() == graphicArray[i].material.GetInstanceID();
-                            if (isReferenced) return true;
-                        }
-                    }
-
-                    //모든 Renderer 체크
-                    Renderer[] rendererArr = tr.GetComponents<Renderer>();
-                    if (rendererArr.Length > 0)
-                    {
-                        for (int i = 0; i < rendererArr.Length; i++)
-                        {
-                            for (int j = 0; j < rendererArr[i].sharedMaterials.Length; j++)
-                            {
-                                if (rendererArr[i].sharedMaterials[j] != null)
-                                {
-                                    isReferenced = target.GetInstanceID() == rendererArr[i].sharedMaterials[j].GetInstanceID();
-                                    if (isReferenced) return true;
-                                }
-                            }
-                        }
-                    }
-                    return isReferenced;
-                }
+                    //그래픽 체크
+                    isReferenced = CheckGraphicByMaterial(tr);
+                    if (isReferenced) return true;
+                    //렌더러 체크
+                    isReferenced = CheckRendererByMaterial(tr);
+                    if (isReferenced) return true;
+                }break;
 
             case eAssetType.AUDIO_CLIP:
                 {
-                    AudioSource audioSource = tr.GetComponent<AudioSource>();
-                    if (audioSource != null)
-                    {
-                        if (audioSource.clip != null)
-                        {
-                            isReferenced = target.GetInstanceID() == audioSource.clip.GetInstanceID();
-                        }
-                    }
-                    return isReferenced;
-                }
+                    isReferenced = CheckAudioSourceByAudioClip(tr);
+                    if (isReferenced) return true;
+                }break;
+
             case eAssetType.RENDER_TEXTURE:
             case eAssetType.TEXTURE2D:
             case eAssetType.SPRITE:
                 {
-                    //모든 그래픽
-                    Graphic[] graphicArray = tr.GetComponents<Graphic>();
-                    if (graphicArray.Length > 0)
-                    {
-                        for (int i = 0; i < graphicArray.Length; i++)
-                        {
-                            if (graphicArray[i].mainTexture == null) continue;
-                            isReferenced = target.GetInstanceID() == graphicArray[i].mainTexture.GetInstanceID();
-                            if (isReferenced) return true;
-                        }
-                    }
-
-                    //스프라이트 렌더러 체크
-                    SpriteRenderer[] rendererArr = tr.GetComponents<SpriteRenderer>();
-                    if (rendererArr.Length > 0)
-                    {
-                        for (int i = 0; i < rendererArr.Length; i++)
-                        {
-                            if (rendererArr[i].sprite == null) continue;
-                            isReferenced = target.GetInstanceID() == rendererArr[i].sprite.GetInstanceID();
-                            if (isReferenced) return true;
-                        }
-                    }
-                    return isReferenced;
+                    //그래픽 체크
+                    isReferenced = CheckGraphicByTexture(tr);
+                    if (isReferenced) return true;
+                    //스프라이트 렌더러
+                    isReferenced = CheckSpriteRendererByTexture(tr);
+                    if (isReferenced) return true;
                 }
+                break;
             case eAssetType.MONO_BEHAVIOUR:
                 {
-                    MonoBehaviour s = tr.GetComponent<MonoBehaviour>();
-                    if (s != null)
-                    {
-                        Type type = s.GetType();
-                        isReferenced = scriptName == type.Name;
-                        if (isReferenced) return true;
-                    }
-                    return isReferenced;
-                }  
+                    //MonoScript 체크
+                    isReferenced = CheckMonoBehaviorByMonoScript(tr);
+                    if (isReferenced) return true;
+                }break;
+            case eAssetType.TMP_FONT:
+                {
+                    isReferenced = CheckTmpTextByTmpFontAsset(tr);
+                    if (isReferenced) return true;
+                }break;
+
+            case eAssetType.FONT:
+                {
+                    isReferenced = CheckTextByFont(tr);
+                    if (isReferenced) return true;
+                }
+                break;
+
+                #region [프리팹 참조 - 기능 미구현]
                 /*
             case eAssetType.PREFAB:
                 {
@@ -326,37 +274,249 @@ public class FindObjectReferenceEditor : EditorWindow
                     return isReferenced;
                 }
                 */
-            case eAssetType.TMP_FONT:
+                #endregion
+
+        }
+        return isReferenced;
+    }
+
+    /// <summary>
+    /// 참조된 오브젝트 리스트뷰로 보여주기
+    /// </summary>
+    private void DrawResultScrollView()
+    {
+        scrollPosition = GUILayout.BeginScrollView(scrollPosition);
+        // 게임 오브젝트 리스트를 순회하며 각 항목을 보여준다
+        foreach (KeyValuePair<string, List<Transform>> obj in referencedList)
+        {
+            Transform tr = (Transform)AssetDatabase.LoadAssetAtPath(obj.Key, typeof(Transform));
+            if (!foldoutStates.ContainsKey(obj.Key))
+            {
+                foldoutStates[obj.Key] = false;
+            }
+
+            GUILayout.BeginHorizontal();
+            foldoutStates[obj.Key] = GUILayout.Toggle(foldoutStates[obj.Key], "( " + obj.Value.Count + " ) " + obj.Key, GUI.skin.button, GUILayout.ExpandWidth(true));
+            if (GUILayout.Button("Go To", GUILayout.Width(100)))
+            {
+                PrefabStageUtility.OpenPrefab(obj.Key);
+                //Selection.activeObject = tr.gameObject;
+            }
+            GUILayout.EndHorizontal();
+
+            if (foldoutStates[obj.Key])
+            {
+                foreach (Transform child in obj.Value)
                 {
-                    TMP_Text tmp = tr.GetComponent<TMP_Text>();
-                    if (tmp != null)
+                    if (GUILayout.Button(child.name))
                     {
-                        if (tmp.font != null)
-                        {
-                            isReferenced = target.GetInstanceID() == tmp.font.GetInstanceID();
-                            if (isReferenced) return true;
-                        }
+                        Selection.activeGameObject = child.gameObject;
                     }
-                    return isReferenced;
                 }
+            }
+        }
+        // 스크롤뷰 종료
+        GUILayout.EndScrollView();
+    }
+
+    /// <summary>라인 그리기</summary>
+    private void DrawLine(int aSpace)
+    {
+        GUILayout.Space(aSpace);
+        var rect = EditorGUILayout.BeginHorizontal();
+        Handles.color = Color.gray;
+        Handles.DrawLine(new Vector2(rect.x - 15, rect.y), new Vector2(rect.width + 15, rect.y));
+        EditorGUILayout.EndHorizontal();
+        GUILayout.Space(aSpace);
+    }
+
+    /// <summary>
+    /// 그래픽에서 매터리얼 참조 체크
+    /// </summary>
+    private bool CheckGraphicByMaterial(Transform tr)
+    {
+        bool isReferenced = false;
+        Graphic[] graphicArray = tr.GetComponents<Graphic>();
+        if (graphicArray.Length > 0)
+        {
+            for (int i = 0; i < graphicArray.Length; i++)
+            {
+                if (graphicArray[i].material == null) continue;
+                isReferenced = target.GetInstanceID() == graphicArray[i].material.GetInstanceID();
+                if (isReferenced) return true;
+            }
+        }
+        return isReferenced;
+    }
+
+    /// <summary>
+    /// 그래픽에서 텍스쳐 참조 체크
+    /// </summary>
+    private bool CheckGraphicByTexture(Transform tr)
+    {
+        bool isReferenced = false;
+        //모든 그래픽
+        Graphic[] graphicArray = tr.GetComponents<Graphic>();
+        if (graphicArray.Length > 0)
+        {
+            for (int i = 0; i < graphicArray.Length; i++)
+            {
+                if (graphicArray[i].mainTexture == null) continue;
+                isReferenced = target.GetInstanceID() == graphicArray[i].mainTexture.GetInstanceID();
+                if (isReferenced) return true;
+            }
+        }
+        return isReferenced;
+    }
+
+    /// <summary>
+    /// 렌더러에서 매터리얼 참조 체크
+    /// </summary>    
+    private bool CheckRendererByMaterial(Transform tr)
+    {
+        bool isReferenced = false;
+        Renderer[] rendererArr = tr.GetComponents<Renderer>();
+        if (rendererArr.Length > 0)
+        {
+            for (int i = 0; i < rendererArr.Length; i++)
+            {
+                for (int j = 0; j < rendererArr[i].sharedMaterials.Length; j++)
+                {
+                    if (rendererArr[i].sharedMaterials[j] != null)
+                    {
+                        isReferenced = target.GetInstanceID() == rendererArr[i].sharedMaterials[j].GetInstanceID();
+                        if (isReferenced) return true;
+                    }
+                }
+            }
+        }
+        return isReferenced;
+    }
+
+    /// <summary>
+    /// 스프라이트 렌더러에서 Texture 참조 체크
+    /// </summary>
+    private bool CheckSpriteRendererByTexture(Transform tr)
+    {
+        bool isReferenced = false;
+        //스프라이트 렌더러 체크
+        SpriteRenderer[] rendererArr = tr.GetComponents<SpriteRenderer>();
+        if (rendererArr.Length > 0)
+        {
+            for (int i = 0; i < rendererArr.Length; i++)
+            {
+                if (rendererArr[i].sprite == null) continue;
+                isReferenced = target.GetInstanceID() == rendererArr[i].sprite.GetInstanceID();
+                if (isReferenced) return true;
+            }
+        }
+        return isReferenced;
+    }
+
+    /// <summary>
+    /// 애니메이터 컨트롤러 체크
+    /// </summary>
+    private bool CheckAnimatorByAnimatorController(Transform tr)
+    {
+        bool isReferenced = false;
+        Animator ani = tr.GetComponent<Animator>();
+        if (ani != null)
+        {
+            if (ani.runtimeAnimatorController != null)
+            {
+                isReferenced = target.GetInstanceID() == ani.runtimeAnimatorController.GetInstanceID();
+                if (isReferenced) return true;
+            }
+        }
+        return isReferenced;
+    }
+
+    /// <summary>
+    /// 오디오 클립 참조 체크
+    /// </summary>
+    private bool CheckAudioSourceByAudioClip(Transform tr)
+    {
+        bool isReferenced = false;
+        AudioSource audioSource = tr.GetComponent<AudioSource>();
+        if (audioSource != null)
+        {
+            if (audioSource.clip != null)
+            {
+                isReferenced = target.GetInstanceID() == audioSource.clip.GetInstanceID();
+            }
+        }
+        return isReferenced;
+    }
+
+    /// <summary>
+    /// Mono Behavior 를 참조 체크
+    /// </summary>
+    private bool CheckMonoBehaviorByMonoScript(Transform tr)
+    {
+        bool isReferenced = false;
+        MonoBehaviour s = tr.GetComponent<MonoBehaviour>();
+        if (s != null)
+        {
+            Type type = s.GetType();
+            isReferenced = scriptName == type.Name;
+            if (isReferenced) return true;
+        }
+        return isReferenced;
+    }
+
+    /// <summary>
+    /// TMP Text를 사용하는 컴포넌트의 TMP Font 참조 체크
+    /// </summary>
+    private bool CheckTmpTextByTmpFontAsset(Transform tr)
+    {
+        bool isReferenced = false;
+        TMP_Text tmp = tr.GetComponent<TMP_Text>();
+        if (tmp != null)
+        {
+            if (tmp.font != null)
+            {
+                isReferenced = target.GetInstanceID() == tmp.font.GetInstanceID();
+                if (isReferenced) return true;
+            }
+        }
+        return isReferenced;
+    }
+
+    /// <summary>
+    /// Text를 사용하는 컴포넌트의 Font 참조 체크
+    /// </summary>
+    private bool CheckTextByFont(Transform tr)
+    {
+        bool isReferenced = false;
+        Text text = tr.GetComponent<Text>();
+        if (text != null)
+        {
+            if (text.font != null)
+            {
+                isReferenced = target.GetInstanceID() == text.font.GetInstanceID();
+                if (isReferenced) return true;
+            }
         }
         return isReferenced;
     }
 }
 
-/// <summary>
-/// 자신을 제외한 자식을 리스트로 리턴한다 
-/// </summary>
-public static class TransformGetAllChildren
+namespace FindObjectReferenced
 {
-    public static List<Transform> GetAllChildren(this Transform parent, List<Transform> transformList = null)
+    /// <summary>
+    /// 자신을 제외한 자식을 리스트로 리턴한다 
+    /// </summary>
+    public static class TransformGetAllChildren
     {
-        if (transformList == null) transformList = new List<Transform>();
-        foreach (Transform child in parent)
+        public static List<Transform> GetAllChildren(this Transform parent, List<Transform> transformList = null)
         {
-            transformList.Add(child);
-            child.GetAllChildren(transformList);
+            if (transformList == null) transformList = new List<Transform>();
+            foreach (Transform child in parent)
+            {
+                transformList.Add(child);
+                child.GetAllChildren(transformList);
+            }
+            return transformList;
         }
-        return transformList;
     }
 }
